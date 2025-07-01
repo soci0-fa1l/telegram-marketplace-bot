@@ -19,7 +19,7 @@ def bot_handler(request):
 
 # 웹훅 설정 함수
 def set_webhook():
-    url = f'https://{Vercel_URL}/api/bot'
+    url = f'https://{telegram-marketplace-bot.vercel.app}/api/bot'
     webhook_url = f'https://api.telegram.org/bot{TOKEN}/setWebhook?url={url}'
     requests.get(webhook_url)
 
