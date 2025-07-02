@@ -1,155 +1,129 @@
 import json
 import os
-import logging
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes
+import urllib.request
+import urllib.parse
+from http.server import BaseHTTPRequestHandler
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """GET 요청 핸들러 - 헬스체크"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        
+        response = json.dumps({
+            'status': 'Bot is alive!', 
+            'method': 'GET',
+            'message': 'Telegram bot is running on Vercel'
+        })
+        self.wfile.write(response.encode('utf-8'))
 
-# 환경변수에서 토큰 가져오기
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-
-if not TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN environment variable not set")
-
-# 봇 인스턴스 생성
-bot = Bot(token=TOKEN) if TOKEN else None
-
-# 명령어 핸들러
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start command handler"""
-    try:
-        await update.message.reply_text('안녕하세요! 텔레그램 마켓플레이스 봇입니다.')
-        logger.info("Start command executed successfully")
-    except Exception as e:
-        logger.error(f"Error in start command: {e}")
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Help command handler"""
-    try:
-        help_text = """
-사용 가능한 명령어:
-/start - 봇 시작
-/help - 도움말 보기
-"""
-        await update.message.reply_text(help_text)
-        logger.info("Help command executed successfully")
-    except Exception as e:
-        logger.error(f"Error in help command: {e}")
-
-# Vercel에서 요구하는 핸들러 함수
-def handler(request):
-    """Main handler for Vercel serverless function"""
-    import asyncio
-    
-    try:
-        # 환경변수 체크
-        if not TOKEN:
-            logger.error("Bot token not configured")
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'Bot token not configured'})
-            }
-        
-        # GET 요청 처리 (헬스체크용)
-        if request.method == 'GET':
-            return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'status': 'Bot is running', 'method': 'GET'})
-            }
-        
-        # POST 요청만 처리
-        if request.method != 'POST':
-            return {
-                'statusCode': 405,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'Method not allowed'})
-            }
-        
-        # 요청 본문 처리
-        if hasattr(request, 'get_json'):
-            body = request.get_json()
-        elif hasattr(request, 'json'):
-            body = request.json
-        else:
-            try:
-                body = json.loads(request.body)
-            except:
-                body = json.loads(request.data.decode('utf-8'))
-        
-        if not body:
-            logger.warning("Empty request body")
-            return {
-                'statusCode': 400,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'Empty request body'})
-            }
-        
-        logger.info(f"Received update: {body}")
-        
-        # 비동기 처리
-        async def process_update():
-            try:
-                # 텔레그램 업데이트 객체 생성
-                update = Update.de_json(body, bot)
-                
-                if not update:
-                    logger.warning("Invalid update object")
-                    return False
-                
-                # Application 인스턴스 생성
-                application = Application.builder().token(TOKEN).build()
-                
-                # 핸들러 등록
-                application.add_handler(CommandHandler("start", start))
-                application.add_handler(CommandHandler("help", help_command))
-                
-                # 업데이트 처리
-                await application.process_update(update)
-                logger.info("Update processed successfully")
-                return True
-                
-            except Exception as e:
-                logger.error(f"Error in process_update: {e}")
-                return False
-        
-        # 이벤트 루프 실행
+    def do_POST(self):
+        """POST 요청 핸들러 - 웹훅"""
         try:
-            # 새 이벤트 루프 생성
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            success = loop.run_until_complete(process_update())
-            loop.close()
-        except Exception as e:
-            logger.error(f"Event loop error: {e}")
-            success = False
-        
-        if success:
-            return {
-                'statusCode': 200,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'status': 'ok'})
-            }
-        else:
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'Failed to process update'})
-            }
-        
-    except Exception as e:
-        logger.error(f"Handler error: {e}")
-        return {
-            'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'error': str(e)})
-        }
+            # 환경변수에서 토큰 가져오기
+            token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            if not token:
+                self.send_error(500, 'Bot token not configured')
+                return
+            
+            # 요청 본문 읽기
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self.send_error(400, 'Empty request body')
+                return
+                
+            post_data = self.rfile.read(content_length)
+            update = json.loads(post_data.decode('utf-8'))
+            
+            # 메시지 처리
+            if 'message' in update:
+                message = update['message']
+                chat_id = message['chat']['id']
+                text = message.get('text', '')
+                
+                # 응답 메시지 결정
+                if text == '/start':
+                    reply_text = '🎉 안녕하세요! 텔레그램 마켓플레이스 봇입니다.\n\n사용법을 보려면 /help를 입력하세요.'
+                elif text == '/help':
+                    reply_text = '''📋 사용 가능한 명령어:
 
-# 기본 엔트리포인트 (Vercel이 찾는 함수명)
-def main(request):
-    """Entry point for Vercel"""
-    return handler(request)
+🚀 /start - 봇 시작하기
+❓ /help - 도움말 보기
+🛒 /products - 상품 목록 보기 (준비중)
+➕ /sell - 상품 등록하기 (준비중)
+
+더 많은 기능이 곧 추가될 예정입니다!'''
+                elif text == '/products':
+                    reply_text = '🛒 상품 목록 기능은 준비 중입니다. 곧 만나보세요!'
+                elif text == '/sell':
+                    reply_text = '➕ 상품 등록 기능은 준비 중입니다. 곧 만나보세요!'
+                else:
+                    reply_text = f'❓ "{text}"는 알 수 없는 명령어입니다.\n\n사용 가능한 명령어를 보려면 /help를 입력하세요.'
+                
+                # 텔레그램으로 메시지 전송
+                success = self.send_telegram_message(token, chat_id, reply_text)
+                
+                if success:
+                    # 성공 응답
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    response = json.dumps({'status': 'ok', 'message': 'Message sent successfully'})
+                    self.wfile.write(response.encode('utf-8'))
+                else:
+                    self.send_error(500, 'Failed to send message')
+            else:
+                # 메시지가 없는 업데이트 (정상 처리)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                response = json.dumps({'status': 'ok', 'message': 'Update processed'})
+                self.wfile.write(response.encode('utf-8'))
+                
+        except json.JSONDecodeError:
+            self.send_error(400, 'Invalid JSON')
+        except Exception as e:
+            self.send_error(500, f'Internal error: {str(e)}')
+
+    def send_telegram_message(self, token, chat_id, text):
+        """텔레그램 API로 메시지 전송"""
+        try:
+            url = f'https://api.telegram.org/bot{token}/sendMessage'
+            data = {
+                'chat_id': str(chat_id),
+                'text': text,
+                'parse_mode': 'HTML'
+            }
+            
+            # POST 데이터 인코딩
+            encoded_data = urllib.parse.urlencode(data).encode('utf-8')
+            
+            # HTTP 요청 생성
+            req = urllib.request.Request(
+                url, 
+                data=encoded_data, 
+                method='POST'
+            )
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            
+            # 요청 실행
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result.get('ok', False)
+                
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            return False
+
+    def send_error(self, code, message):
+        """에러 응답 전송"""
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        response = json.dumps({'error': message, 'code': code})
+        self.wfile.write(response.encode('utf-8'))
+
+    def log_message(self, format, *args):
+        """로그 메시지 (Vercel 로그에 출력)"""
+        print(f"[{self.address_string()}] {format % args}")
