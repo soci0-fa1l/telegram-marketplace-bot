@@ -1,11 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Heart, ShoppingCart, User, Home, Tag, Camera, Send } from 'lucide-react';
 
+interface Product {
+  id: number;
+  title: string;
+  price: number;
+  category: string;
+  image: string;
+  seller: string;
+  location: string;
+  likes: number;
+  isNew: boolean;
+}
+
 const TelegramMarketplace = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [showAddProduct, setShowAddProduct] = useState(false);
 
   // 샘플 데이터
@@ -18,7 +30,7 @@ const TelegramMarketplace = () => {
     { id: 'beauty', name: '뷰티', icon: '💄' }
   ];
 
-  const sampleProducts = [
+  const sampleProducts: Product[] = [
     {
       id: 1,
       title: 'iPhone 15 Pro',
@@ -58,7 +70,7 @@ const TelegramMarketplace = () => {
     setProducts(sampleProducts);
   }, []);
 
-  const formatPrice = (price) => {
+  const formatPrice = (price: number) => {
     return new Intl.NumberFormat('ko-KR').format(price) + '원';
   };
 
