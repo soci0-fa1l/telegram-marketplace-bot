@@ -1,4 +1,4 @@
-    {
+{
   "version": 2,
   "builds": [
     {
@@ -9,7 +9,12 @@
   "routes": [
     {
       "src": "/api/bot",
-      "dest": "api/bot.py"
+      "dest": "/api/bot.py"
     }
-  ]
+  ],
+  "functions": {
+    "api/bot.py": {
+      "runtime": "python3.9"
+    }
+  }
 }
