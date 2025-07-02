@@ -4,7 +4,7 @@
   "main": "src/index.tsx",
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "node node_modules/react-scripts/bin/react-scripts.js build",
     "lint": "node node_modules/eslint/bin/eslint.js . --ext .js,.jsx,.ts,.tsx",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
