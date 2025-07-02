@@ -1,77 +1,155 @@
 import json
 import os
+import logging
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 환경변수에서 토큰 가져오기
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
+if not TOKEN:
+    logger.error("TELEGRAM_BOT_TOKEN environment variable not set")
+
 # 봇 인스턴스 생성
-bot = Bot(token=TOKEN)
+bot = Bot(token=TOKEN) if TOKEN else None
 
 # 명령어 핸들러
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Start command handler"""
-    await update.message.reply_text('안녕하세요! 텔레그램 마켓플레이스 봇입니다.')
+    try:
+        await update.message.reply_text('안녕하세요! 텔레그램 마켓플레이스 봇입니다.')
+        logger.info("Start command executed successfully")
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Help command handler"""
-    help_text = """
+    try:
+        help_text = """
 사용 가능한 명령어:
 /start - 봇 시작
 /help - 도움말 보기
 """
-    await update.message.reply_text(help_text)
+        await update.message.reply_text(help_text)
+        logger.info("Help command executed successfully")
+    except Exception as e:
+        logger.error(f"Error in help command: {e}")
 
-# Vercel 핸들러 함수
-async def handler(request):
+# Vercel에서 요구하는 핸들러 함수
+def handler(request):
     """Main handler for Vercel serverless function"""
+    import asyncio
+    
     try:
+        # 환경변수 체크
+        if not TOKEN:
+            logger.error("Bot token not configured")
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'error': 'Bot token not configured'})
+            }
+        
+        # GET 요청 처리 (헬스체크용)
+        if request.method == 'GET':
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'status': 'Bot is running', 'method': 'GET'})
+            }
+        
         # POST 요청만 처리
         if request.method != 'POST':
             return {
                 'statusCode': 405,
+                'headers': {'Content-Type': 'application/json'},
                 'body': json.dumps({'error': 'Method not allowed'})
             }
         
-        # 요청 본문 파싱
-        body = await request.json() if hasattr(request, 'json') else json.loads(request.body)
+        # 요청 본문 처리
+        if hasattr(request, 'get_json'):
+            body = request.get_json()
+        elif hasattr(request, 'json'):
+            body = request.json
+        else:
+            try:
+                body = json.loads(request.body)
+            except:
+                body = json.loads(request.data.decode('utf-8'))
         
-        # 텔레그램 업데이트 객체 생성
-        update = Update.de_json(body, bot)
+        if not body:
+            logger.warning("Empty request body")
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'error': 'Empty request body'})
+            }
         
-        # Application 인스턴스 생성
-        application = Application.builder().token(TOKEN).build()
+        logger.info(f"Received update: {body}")
         
-        # 핸들러 등록
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
+        # 비동기 처리
+        async def process_update():
+            try:
+                # 텔레그램 업데이트 객체 생성
+                update = Update.de_json(body, bot)
+                
+                if not update:
+                    logger.warning("Invalid update object")
+                    return False
+                
+                # Application 인스턴스 생성
+                application = Application.builder().token(TOKEN).build()
+                
+                # 핸들러 등록
+                application.add_handler(CommandHandler("start", start))
+                application.add_handler(CommandHandler("help", help_command))
+                
+                # 업데이트 처리
+                await application.process_update(update)
+                logger.info("Update processed successfully")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error in process_update: {e}")
+                return False
         
-        # 업데이트 처리
-        await application.process_update(update)
+        # 이벤트 루프 실행
+        try:
+            # 새 이벤트 루프 생성
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            success = loop.run_until_complete(process_update())
+            loop.close()
+        except Exception as e:
+            logger.error(f"Event loop error: {e}")
+            success = False
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({'status': 'ok'})
-        }
+        if success:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'status': 'ok'})
+            }
+        else:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'error': 'Failed to process update'})
+            }
         
     except Exception as e:
-        print(f"Error processing update: {e}")
+        logger.error(f"Handler error: {e}")
         return {
             'statusCode': 500,
+            'headers': {'Content-Type': 'application/json'},
             'body': json.dumps({'error': str(e)})
         }
 
-# Vercel에서 요구하는 기본 핸들러 (동기 버전)
+# 기본 엔트리포인트 (Vercel이 찾는 함수명)
 def main(request):
-    """Synchronous wrapper for the async handler"""
-    import asyncio
-    
-    # 이벤트 루프가 이미 실행 중인지 확인
-    try:
-        loop = asyncio.get_running_loop()
-        # 이미 실행 중인 경우 새 태스크로 실행
-        return loop.run_until_complete(handler(request))
-    except RuntimeError:
-        # 실행 중인 루프가 없는 경우 새로 생성
-        return asyncio.run(handler(request))
+    """Entry point for Vercel"""
+    return handler(request)
