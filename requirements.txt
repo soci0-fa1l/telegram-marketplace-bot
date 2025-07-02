@@ -1,1 +1,8 @@
-# 기본 라이브러리만 사용 - 추가 설치 불필요
+{
+  "version": 2,
+  "functions": {
+    "api/bot.py": {
+      "runtime": "python3.11"
+    }
+  }
+}
