@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/api/bot"
+      "source": "/marketplace",
+      "destination": "/index.html"
     }
   ]
 }
