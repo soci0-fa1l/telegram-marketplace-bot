@@ -1,3 +1,10 @@
+"""Telegram marketplace bot webhook handler.
+
+This script relies solely on Python's standard library modules
+(``json``, ``os``, ``urllib`` and ``http.server``).  No third-party
+packages are required.
+"""
+
 import json
 import os
 import urllib.request
