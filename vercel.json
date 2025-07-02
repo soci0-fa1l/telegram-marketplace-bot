@@ -16,5 +16,8 @@
     "api/bot.py": {
       "runtime": "python3.9"
     }
+  },
+  "env": {
+    "TELEGRAM_BOT_TOKEN": "@telegram_bot_token"
   }
 }
