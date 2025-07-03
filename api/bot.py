@@ -4,10 +4,13 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+# 전역 상태 저장소
+user_states = {}
+# 이미 처리된 업데이트 ID 추적용
+processed_updates = set()
+
 class handler(BaseHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        self.state = {}  # 사용자 진행 상태를 저장하는 변수
-        super().__init__(*args, **kwargs)
+    """HTTP request handler for Telegram bot webhook"""
 
     def do_GET(self):
         """GET 요청 처리 - 헬스체크 및 상품 목록"""
@@ -63,6 +66,20 @@ class handler(BaseHTTPRequestHandler):
             
             print(f"Received update: {json.dumps(update_data, indent=2)}")
             
+            update_id = update_data.get('update_id')
+
+            # 중복 업데이트 방지
+            if update_id in processed_updates:
+                print(f"Duplicate update {update_id} ignored")
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'ignored'}).encode())
+                return
+
+            if update_id is not None:
+                processed_updates.add(update_id)
+
             # 메시지 처리
             if 'message' in update_data:
                 success = self.handle_message(bot_token, update_data['message'])
@@ -93,6 +110,11 @@ class handler(BaseHTTPRequestHandler):
             if not chat_id:
                 return False
             
+            # 사용자가 상품 등록을 진행 중인지 확인
+            if chat_id in user_states:
+                self.process_product_registration(bot_token, chat_id, text)
+                return True
+
             # 상품 등록 시작
             if text.lower() == '/sell':
                 self.start_product_registration(bot_token, chat_id)
@@ -132,34 +154,34 @@ class handler(BaseHTTPRequestHandler):
     def start_product_registration(self, bot_token, chat_id):
         """상품 등록 프로세스 시작"""
         self.send_message(bot_token, chat_id, "상품 등록을 시작합니다. 상품명을 입력해주세요.")
-        self.state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
+        user_states[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
 
     def process_product_registration(self, bot_token, chat_id, text):
         """상품 등록 처리"""
-        step = self.state[chat_id].get("step", "")
+        step = user_states[chat_id].get("step", "")
 
         if step == "name":
-            self.state[chat_id]["name"] = text
+            user_states[chat_id]["name"] = text
             self.send_message(bot_token, chat_id, "가격을 입력해주세요.")
-            self.state[chat_id]["step"] = "price"
+            user_states[chat_id]["step"] = "price"
 
         elif step == "price":
-            self.state[chat_id]["price"] = text
+            user_states[chat_id]["price"] = text
             self.send_message(bot_token, chat_id, "상품 설명을 입력해주세요.")
-            self.state[chat_id]["step"] = "description"
+            user_states[chat_id]["step"] = "description"
 
         elif step == "description":
-            self.state[chat_id]["description"] = text
+            user_states[chat_id]["description"] = text
             self.send_message(bot_token, chat_id, "거래 위치를 입력해주세요.")
-            self.state[chat_id]["step"] = "location"
+            user_states[chat_id]["step"] = "location"
 
         elif step == "location":
-            self.state[chat_id]["location"] = text
+            user_states[chat_id]["location"] = text
             self.finalize_product_registration(bot_token, chat_id)
 
     def finalize_product_registration(self, bot_token, chat_id):
         """상품 등록 완료 및 데이터베이스에 저장"""
-        product = self.state[chat_id]
+        product = user_states[chat_id]
         
         # 여기에서 상품을 데이터베이스에 저장하는 코드를 작성해야 합니다.
         # 예시: self.save_to_database(product)
@@ -170,7 +192,7 @@ class handler(BaseHTTPRequestHandler):
                                                f"설명: {product['description']}\n"
                                                f"위치: {product['location']}")
         
-        del self.state[chat_id]  # 등록 종료 후 상태 삭제
+        del user_states[chat_id]  # 등록 종료 후 상태 삭제
 
     def send_message(self, bot_token, chat_id, text):
         """텔레그램 API로 메시지 전송"""
