@@ -3,10 +3,12 @@ import os
 import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
+from . import crypto_wallet
 
 class handler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         self.state = {}  # 사용자 진행 상태를 저장하는 변수
+        self.wallets = {}  # 사용자 지갑 정보를 저장
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
@@ -80,10 +82,44 @@ class handler(BaseHTTPRequestHandler):
         try:
             chat_id = message.get('chat', {}).get('id')
             text = message.get('text', '')
-            
+
             if not chat_id:
                 return False
-            
+
+            # 지갑 생성
+            if text.lower() == '/wallet':
+                wallet = crypto_wallet.create_wallet()
+                self.wallets[chat_id] = wallet['private_key']
+                self.send_message(bot_token, chat_id, f"새 지갑이 생성되었습니다\n주소: {wallet['address']}")
+                return True
+
+            # 잔액 조회
+            if text.lower() == '/balance':
+                priv = self.wallets.get(chat_id)
+                if not priv:
+                    self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
+                    return True
+                address = crypto_wallet.Account.from_key(priv).address
+                balance = crypto_wallet.get_balance(address)
+                self.send_message(bot_token, chat_id, f"현재 잔액: {balance} ETH")
+                return True
+
+            # 송금 처리
+            if text.lower().startswith('/pay'):
+                parts = text.split()
+                if len(parts) != 3:
+                    self.send_message(bot_token, chat_id, '사용법: /pay <받는주소> <금액>')
+                    return True
+                priv = self.wallets.get(chat_id)
+                if not priv:
+                    self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
+                    return True
+                to_addr = parts[1]
+                amount = float(parts[2])
+                tx_hash = crypto_wallet.send_payment(priv, to_addr, amount)
+                self.send_message(bot_token, chat_id, f"결제 완료! TX: {tx_hash}")
+                return True
+
             # 상품 등록 시작
             if text.lower() == '/sell':
                 self.start_product_registration(bot_token, chat_id)
@@ -204,6 +240,9 @@ class handler(BaseHTTPRequestHandler):
 ❓ /help - 도움말
 🛒 /products - 상품 목록
 ➕ /sell - 상품 등록
+💼 /wallet - 지갑 생성
+💰 /balance - 잔액 확인
+💸 /pay <주소> <금액> - 결제
 
 더 많은 기능이 곧 추가됩니다!'''
         }
