@@ -4,6 +4,9 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+# 최근에 처리한 업데이트 ID를 저장하여 중복 메시지 전송을 방지한다.
+processed_updates = set()
+
 class handler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         self.state = {}  # 사용자 진행 상태를 저장하는 변수
@@ -60,7 +63,21 @@ class handler(BaseHTTPRequestHandler):
                 print(f"JSON parsing error: {e}")
                 self.send_error(400, 'Invalid JSON format')
                 return
-            
+
+            # 동일한 업데이트가 여러 번 전송될 수 있으므로 중복 여부를 확인한다.
+            update_id = update_data.get('update_id')
+            if update_id is not None and update_id in processed_updates:
+                print(f"Duplicate update {update_id} ignored")
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'ignored', 'reason': 'duplicate'}).encode())
+                return
+            if update_id is not None:
+                if len(processed_updates) > 1000:
+                    processed_updates.clear()
+                processed_updates.add(update_id)
+
             print(f"Received update: {json.dumps(update_data, indent=2)}")
             
             # 메시지 처리
