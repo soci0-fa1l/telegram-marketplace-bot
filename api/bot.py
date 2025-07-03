@@ -3,13 +3,18 @@ import os
 import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
+import threading
 from . import crypto_wallet
 
+# Module-level stores so data survives across handler instances
+state = {}
+wallets = {}
+# Locks to avoid race conditions when multiple threads access the stores
+state_lock = threading.Lock()
+wallets_lock = threading.Lock()
+
 class handler(BaseHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        self.state = {}  # 사용자 진행 상태를 저장하는 변수
-        self.wallets = {}  # 사용자 지갑 정보를 저장
-        super().__init__(*args, **kwargs)
+    """HTTP handler for Telegram bot webhook."""
 
     def do_GET(self):
         """GET 요청 처리 - 헬스체크"""
@@ -89,13 +94,15 @@ class handler(BaseHTTPRequestHandler):
             # 지갑 생성
             if text.lower() == '/wallet':
                 wallet = crypto_wallet.create_wallet()
-                self.wallets[chat_id] = wallet['private_key']
+                with wallets_lock:
+                    wallets[chat_id] = wallet['private_key']
                 self.send_message(bot_token, chat_id, f"새 지갑이 생성되었습니다\n주소: {wallet['address']}")
                 return True
 
             # 잔액 조회
             if text.lower() == '/balance':
-                priv = self.wallets.get(chat_id)
+                with wallets_lock:
+                    priv = wallets.get(chat_id)
                 if not priv:
                     self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
                     return True
@@ -110,7 +117,8 @@ class handler(BaseHTTPRequestHandler):
                 if len(parts) != 3:
                     self.send_message(bot_token, chat_id, '사용법: /pay <받는주소> <금액>')
                     return True
-                priv = self.wallets.get(chat_id)
+                with wallets_lock:
+                    priv = wallets.get(chat_id)
                 if not priv:
                     self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
                     return True
@@ -143,34 +151,41 @@ class handler(BaseHTTPRequestHandler):
     def start_product_registration(self, bot_token, chat_id):
         """상품 등록 프로세스 시작"""
         self.send_message(bot_token, chat_id, "상품 등록을 시작합니다. 상품명을 입력해주세요.")
-        self.state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
+        with state_lock:
+            state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
 
     def process_product_registration(self, bot_token, chat_id, text):
         """상품 등록 처리"""
-        step = self.state[chat_id].get("step", "")
+        with state_lock:
+            step = state[chat_id].get("step", "")
 
         if step == "name":
-            self.state[chat_id]["name"] = text
+            with state_lock:
+                state[chat_id]["name"] = text
+                state[chat_id]["step"] = "price"
             self.send_message(bot_token, chat_id, "가격을 입력해주세요.")
-            self.state[chat_id]["step"] = "price"
 
         elif step == "price":
-            self.state[chat_id]["price"] = text
+            with state_lock:
+                state[chat_id]["price"] = text
+                state[chat_id]["step"] = "description"
             self.send_message(bot_token, chat_id, "상품 설명을 입력해주세요.")
-            self.state[chat_id]["step"] = "description"
 
         elif step == "description":
-            self.state[chat_id]["description"] = text
+            with state_lock:
+                state[chat_id]["description"] = text
+                state[chat_id]["step"] = "location"
             self.send_message(bot_token, chat_id, "거래 위치를 입력해주세요.")
-            self.state[chat_id]["step"] = "location"
 
         elif step == "location":
-            self.state[chat_id]["location"] = text
+            with state_lock:
+                state[chat_id]["location"] = text
             self.finalize_product_registration(bot_token, chat_id)
 
     def finalize_product_registration(self, bot_token, chat_id):
         """상품 등록 완료 및 데이터베이스에 저장"""
-        product = self.state[chat_id]
+        with state_lock:
+            product = state[chat_id]
         
         # 여기에서 상품을 데이터베이스에 저장하는 코드를 작성해야 합니다.
         # 예시: self.save_to_database(product)
@@ -181,7 +196,8 @@ class handler(BaseHTTPRequestHandler):
                                                f"설명: {product['description']}\n"
                                                f"위치: {product['location']}")
         
-        del self.state[chat_id]  # 등록 종료 후 상태 삭제
+        with state_lock:
+            del state[chat_id]  # 등록 종료 후 상태 삭제
 
     def send_message(self, bot_token, chat_id, text):
         """텔레그램 API로 메시지 전송"""
