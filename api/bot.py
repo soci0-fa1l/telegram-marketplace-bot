@@ -152,6 +152,7 @@ class handler(BaseHTTPRequestHandler):
             reply = self.create_reply(command or text)
             self.send_message(bot_token, chat_id, reply)
         
+        
         except Exception as e:
             print(f"Message handling error: {e}")
             return False
@@ -159,34 +160,41 @@ class handler(BaseHTTPRequestHandler):
     def start_product_registration(self, bot_token, chat_id):
         """상품 등록 프로세스 시작"""
         self.send_message(bot_token, chat_id, "상품 등록을 시작합니다. 상품명을 입력해주세요.")
-        self.state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
+        with state_lock:
+            state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
 
     def process_product_registration(self, bot_token, chat_id, text):
         """상품 등록 처리"""
-        step = self.state[chat_id].get("step", "")
+        with state_lock:
+            step = state[chat_id].get("step", "")
 
         if step == "name":
-            self.state[chat_id]["name"] = text
+            with state_lock:
+                state[chat_id]["name"] = text
+                state[chat_id]["step"] = "price"
             self.send_message(bot_token, chat_id, "가격을 입력해주세요.")
-            self.state[chat_id]["step"] = "price"
 
         elif step == "price":
-            self.state[chat_id]["price"] = text
+            with state_lock:
+                state[chat_id]["price"] = text
+                state[chat_id]["step"] = "description"
             self.send_message(bot_token, chat_id, "상품 설명을 입력해주세요.")
-            self.state[chat_id]["step"] = "description"
 
         elif step == "description":
-            self.state[chat_id]["description"] = text
+            with state_lock:
+                state[chat_id]["description"] = text
+                state[chat_id]["step"] = "location"
             self.send_message(bot_token, chat_id, "거래 위치를 입력해주세요.")
-            self.state[chat_id]["step"] = "location"
 
         elif step == "location":
-            self.state[chat_id]["location"] = text
+            with state_lock:
+                state[chat_id]["location"] = text
             self.finalize_product_registration(bot_token, chat_id)
 
     def finalize_product_registration(self, bot_token, chat_id):
         """상품 등록 완료 및 데이터베이스에 저장"""
-        product = self.state[chat_id]
+        with state_lock:
+            product = state[chat_id]
         
         # 여기에서 상품을 데이터베이스에 저장하는 코드를 작성해야 합니다.
         # 예시: self.save_to_database(product)
@@ -197,7 +205,8 @@ class handler(BaseHTTPRequestHandler):
                                                f"설명: {product['description']}\n"
                                                f"위치: {product['location']}")
         
-        del self.state[chat_id]  # 등록 종료 후 상태 삭제
+        with state_lock:
+            del state[chat_id]  # 등록 종료 후 상태 삭제
 
     def send_message(self, bot_token, chat_id, text):
         """텔레그램 API로 메시지 전송"""
