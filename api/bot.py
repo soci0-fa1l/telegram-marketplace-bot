@@ -4,9 +4,15 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+from eth_account import Account
+from web3 import Web3
+
 class handler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         self.state = {}  # 사용자 진행 상태를 저장하는 변수
+        self.wallets = {}  # 사용자별 지갑 정보를 저장
+        provider_uri = os.environ.get("WEB3_PROVIDER_URI", "")
+        self.web3 = Web3(Web3.HTTPProvider(provider_uri)) if provider_uri else None
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
@@ -89,6 +95,37 @@ class handler(BaseHTTPRequestHandler):
                 self.start_product_registration(bot_token, chat_id)
                 return True
 
+            # 지갑 주소 확인 또는 생성
+            if text.lower() == '/wallet':
+                address = self.get_or_create_wallet(chat_id)
+                self.send_message(bot_token, chat_id, f"지갑 주소: {address}")
+                return True
+
+            # 지갑 잔액 조회
+            if text.lower() == '/balance':
+                if not self.web3:
+                    self.send_message(bot_token, chat_id, "웹3 제공자 설정이 필요합니다.")
+                    return True
+                address = self.get_or_create_wallet(chat_id)
+                balance = self.web3.eth.get_balance(address)
+                ether = self.web3.from_wei(balance, 'ether')
+                self.send_message(bot_token, chat_id, f"잔액: {ether} ETH")
+                return True
+
+            if text.lower().startswith('/pay'):
+                parts = text.split()
+                if len(parts) != 3:
+                    self.send_message(bot_token, chat_id, '사용법: /pay <주소> <ETH 금액>')
+                    return True
+                to_address = parts[1]
+                amount = parts[2]
+                tx_hash = self.send_payment(chat_id, to_address, amount)
+                if tx_hash:
+                    self.send_message(bot_token, chat_id, f'전송 완료: {tx_hash}')
+                else:
+                    self.send_message(bot_token, chat_id, '전송 실패')
+                return True
+
             # 상품 목록 요청 처리
             if text.lower() == '/products':
                 products = self.get_products()  # 데이터베이스에서 상품 목록 가져오기
@@ -146,6 +183,42 @@ class handler(BaseHTTPRequestHandler):
                                                f"위치: {product['location']}")
         
         del self.state[chat_id]  # 등록 종료 후 상태 삭제
+
+    def get_or_create_wallet(self, chat_id):
+        """사용자 지갑을 생성하거나 기존 지갑 반환"""
+        if chat_id in self.wallets:
+            return self.wallets[chat_id]['address']
+
+        acct = Account.create()
+        self.wallets[chat_id] = {
+            'address': acct.address,
+            'private_key': acct.key.hex()
+        }
+        return acct.address
+
+    def send_payment(self, chat_id, to_address, amount_eth):
+        """사용자 지갑에서 결제 전송"""
+        if not self.web3:
+            return None
+
+        wallet = self.wallets.get(chat_id)
+        if not wallet:
+            return None
+
+        try:
+            amount_wei = self.web3.to_wei(amount_eth, 'ether')
+            tx = {
+                'to': to_address,
+                'value': amount_wei,
+                'gas': 21000,
+                'nonce': self.web3.eth.get_transaction_count(wallet['address'])
+            }
+            signed = self.web3.eth.account.sign_transaction(tx, wallet['private_key'])
+            tx_hash = self.web3.eth.send_raw_transaction(signed.rawTransaction)
+            return tx_hash.hex()
+        except Exception as e:
+            print(f'Payment error: {e}')
+            return None
 
     def send_message(self, bot_token, chat_id, text):
         """텔레그램 API로 메시지 전송"""
