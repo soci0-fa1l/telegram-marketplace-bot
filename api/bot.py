@@ -10,18 +10,27 @@ class handler(BaseHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
-        """GET 요청 처리 - 헬스체크"""
+        """GET 요청 처리 - 헬스체크 및 상품 목록"""
         try:
+            path = urllib.parse.urlparse(self.path).path
+            if path == '/products':
+                products = self.get_products()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'products': products}).encode())
+                return
+
             response_data = {
                 'status': 'Bot is running!',
                 'message': 'Telegram marketplace bot is alive'
             }
-            
+
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(response_data).encode())
-            
+
         except Exception as e:
             print(f"GET error: {e}")
             self.send_error(500, f'Server error: {str(e)}')
@@ -95,6 +104,22 @@ class handler(BaseHTTPRequestHandler):
                 product_list = "\n".join([f"{product['title']} - {product['price']}원" for product in products])
                 reply = f"상품 목록:\n{product_list}"
                 self.send_message(bot_token, chat_id, reply)
+                return True
+
+            # 상품 검색 처리
+            if text.lower().startswith('/search'):
+                parts = text.split(maxsplit=1)
+                if len(parts) == 1:
+                    self.send_message(bot_token, chat_id, '사용법: /search 검색어')
+                else:
+                    keyword = parts[1]
+                    results = self.search_products(keyword)
+                    if results:
+                        result_list = "\n".join([f"{p['title']} - {p['price']}원" for p in results])
+                        reply = f"검색 결과:\n{result_list}"
+                    else:
+                        reply = '검색 결과가 없습니다.'
+                    self.send_message(bot_token, chat_id, reply)
                 return True
 
             reply = self.create_reply(text)
@@ -188,6 +213,14 @@ class handler(BaseHTTPRequestHandler):
             {"title": "나이키 에어맥스", "price": 150000},
             {"title": "클린 코드 도서", "price": 25000}
         ]
+
+    def search_products(self, keyword):
+        """키워드로 상품 검색"""
+        keyword_lower = keyword.lower()
+        return [
+            product for product in self.get_products()
+            if keyword_lower in product['title'].lower()
+        ]
     
     def create_reply(self, user_text):
         """사용자 입력에 따른 응답 생성"""
@@ -203,6 +236,7 @@ class handler(BaseHTTPRequestHandler):
 🚀 /start - 봇 시작
 ❓ /help - 도움말
 🛒 /products - 상품 목록
+🔎 /search 키워드 - 상품 검색
 ➕ /sell - 상품 등록
 
 더 많은 기능이 곧 추가됩니다!'''
