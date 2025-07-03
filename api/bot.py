@@ -4,9 +4,16 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+# 이전에 처리한 update_id를 저장하여 중복 메시지 전송을 방지합니다.
+processed_updates = set()
+
+# 채팅별 진행 상태를 저장하기 위한 전역 변수입니다.
+chat_states = {}
+
 class handler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        self.state = {}  # 사용자 진행 상태를 저장하는 변수
+        # BaseHTTPRequestHandler는 요청마다 인스턴스가 생성되므로
+        # 상태 유지를 위해 전역 변수를 사용합니다.
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
@@ -60,8 +67,18 @@ class handler(BaseHTTPRequestHandler):
                 print(f"JSON parsing error: {e}")
                 self.send_error(400, 'Invalid JSON format')
                 return
-            
+
             print(f"Received update: {json.dumps(update_data, indent=2)}")
+
+            update_id = update_data.get('update_id')
+            if update_id in processed_updates:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'duplicate'}).encode())
+                return
+            if update_id is not None:
+                processed_updates.add(update_id)
             
             # 메시지 처리
             if 'message' in update_data:
@@ -92,6 +109,11 @@ class handler(BaseHTTPRequestHandler):
             
             if not chat_id:
                 return False
+
+            # 사용자가 상품 등록을 진행 중인지 확인
+            if chat_id in chat_states:
+                self.process_product_registration(bot_token, chat_id, text)
+                return True
             
             # 상품 등록 시작
             if text.lower() == '/sell':
@@ -132,34 +154,34 @@ class handler(BaseHTTPRequestHandler):
     def start_product_registration(self, bot_token, chat_id):
         """상품 등록 프로세스 시작"""
         self.send_message(bot_token, chat_id, "상품 등록을 시작합니다. 상품명을 입력해주세요.")
-        self.state[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
+        chat_states[chat_id] = {"step": "name"}  # 사용자가 진행 중인 단계 추적
 
     def process_product_registration(self, bot_token, chat_id, text):
         """상품 등록 처리"""
-        step = self.state[chat_id].get("step", "")
+        step = chat_states[chat_id].get("step", "")
 
         if step == "name":
-            self.state[chat_id]["name"] = text
+            chat_states[chat_id]["name"] = text
             self.send_message(bot_token, chat_id, "가격을 입력해주세요.")
-            self.state[chat_id]["step"] = "price"
+            chat_states[chat_id]["step"] = "price"
 
         elif step == "price":
-            self.state[chat_id]["price"] = text
+            chat_states[chat_id]["price"] = text
             self.send_message(bot_token, chat_id, "상품 설명을 입력해주세요.")
-            self.state[chat_id]["step"] = "description"
+            chat_states[chat_id]["step"] = "description"
 
         elif step == "description":
-            self.state[chat_id]["description"] = text
+            chat_states[chat_id]["description"] = text
             self.send_message(bot_token, chat_id, "거래 위치를 입력해주세요.")
-            self.state[chat_id]["step"] = "location"
+            chat_states[chat_id]["step"] = "location"
 
         elif step == "location":
-            self.state[chat_id]["location"] = text
+            chat_states[chat_id]["location"] = text
             self.finalize_product_registration(bot_token, chat_id)
 
     def finalize_product_registration(self, bot_token, chat_id):
         """상품 등록 완료 및 데이터베이스에 저장"""
-        product = self.state[chat_id]
+        product = chat_states[chat_id]
         
         # 여기에서 상품을 데이터베이스에 저장하는 코드를 작성해야 합니다.
         # 예시: self.save_to_database(product)
@@ -170,7 +192,7 @@ class handler(BaseHTTPRequestHandler):
                                                f"설명: {product['description']}\n"
                                                f"위치: {product['location']}")
         
-        del self.state[chat_id]  # 등록 종료 후 상태 삭제
+        del chat_states[chat_id]  # 등록 종료 후 상태 삭제
 
     def send_message(self, bot_token, chat_id, text):
         """텔레그램 API로 메시지 전송"""
