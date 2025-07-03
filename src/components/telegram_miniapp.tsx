@@ -310,7 +310,9 @@ const TelegramMarketplace = () => {
           >
             <Plus className="w-5 h-5" />
           </button>
-          <WalletConnect />
+          <div className="ml-2">
+            <WalletConnect />
+          </div>
         </div>
       </div>
 
