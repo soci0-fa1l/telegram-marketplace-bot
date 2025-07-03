@@ -4,6 +4,9 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
+# 이미 처리한 update_id를 추적하여 중복 응답을 방지
+processed_update_ids = set()
+
 class handler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         self.state = {}  # 사용자 진행 상태를 저장하는 변수
@@ -60,13 +63,22 @@ class handler(BaseHTTPRequestHandler):
                 print(f"JSON parsing error: {e}")
                 self.send_error(400, 'Invalid JSON format')
                 return
-            
+
             print(f"Received update: {json.dumps(update_data, indent=2)}")
+
+            update_id = update_data.get('update_id')
+            if update_id in processed_update_ids:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'ignored', 'message': 'Duplicate update'}).encode())
+                return
             
             # 메시지 처리
             if 'message' in update_data:
                 success = self.handle_message(bot_token, update_data['message'])
                 if success:
+                    processed_update_ids.add(update_id)
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
@@ -75,6 +87,7 @@ class handler(BaseHTTPRequestHandler):
                     self.send_error(500, 'Failed to send message')
             else:
                 # 메시지가 없는 경우도 성공으로 처리
+                processed_update_ids.add(update_id)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
