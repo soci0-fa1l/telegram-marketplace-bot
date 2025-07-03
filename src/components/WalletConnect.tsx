@@ -1,21 +1,25 @@
 import React, { useState } from 'react';
+import { Wallet } from 'lucide-react';
 
 declare global {
   interface Window {
     ethereum?: any;
+    trustwallet?: any;
+    tp?: any;
   }
 }
 
 const WalletConnect: React.FC = () => {
   const [account, setAccount] = useState<string | null>(null);
 
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      alert('MetaMask가 설치되어 있지 않습니다.');
+  const connect = async () => {
+    const provider = window.ethereum || (window as any).trustwallet || (window as any).tp;
+    if (!provider) {
+      alert('지원되는 지갑이 설치되어 있지 않습니다.');
       return;
     }
     try {
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
     } catch (err) {
       console.error(err);
@@ -25,9 +29,15 @@ const WalletConnect: React.FC = () => {
   return (
     <div>
       {account ? (
-        <p>지갑 주소: {account}</p>
+        <span className="text-xs text-gray-600">{account.slice(0, 6)}...{account.slice(-4)}</span>
       ) : (
-        <button onClick={connectWallet}>지갑 연결</button>
+        <button
+          onClick={connect}
+          className="p-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600"
+          aria-label="지갑 연결"
+        >
+          <Wallet className="w-4 h-4" />
+        </button>
       )}
     </div>
   );

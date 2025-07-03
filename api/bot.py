@@ -3,18 +3,13 @@ import os
 import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
-import threading
 from . import crypto_wallet
 
-# Module-level stores so data survives across handler instances
-state = {}
-wallets = {}
-# Locks to avoid race conditions when multiple threads access the stores
-state_lock = threading.Lock()
-wallets_lock = threading.Lock()
-
 class handler(BaseHTTPRequestHandler):
-    """HTTP handler for Telegram bot webhook."""
+    def __init__(self, *args, **kwargs):
+        self.state = {}  # 사용자 진행 상태를 저장하는 변수
+        self.wallets = {}  # 사용자 지갑 정보를 저장
+        super().__init__(*args, **kwargs)
 
     def do_GET(self):
         """GET 요청 처리 - 헬스체크"""
@@ -82,27 +77,41 @@ class handler(BaseHTTPRequestHandler):
             print(f"POST error: {e}")
             self.send_error(500, f'Processing error: {str(e)}')
 
+    def _extract_command(self, message: dict) -> str:
+        """메시지에서 봇 명령어를 추출합니다."""
+        text = message.get("text", "")
+        for ent in message.get("entities", []):
+            if ent.get("type") == "bot_command":
+                offset = ent.get("offset", 0)
+                length = ent.get("length", 0)
+                return text[offset : offset + length]
+        return text.split()[0] if text.startswith("/") else ""
+
     def handle_message(self, bot_token, message):
         """메시지 처리 및 응답"""
         try:
             chat_id = message.get('chat', {}).get('id')
             text = message.get('text', '')
+            command = self._extract_command(message).lower()
 
             if not chat_id:
                 return False
 
+            # 진행 중인 상품 등록 처리
+            if chat_id in self.state:
+                self.process_product_registration(bot_token, chat_id, text)
+                return True
+
             # 지갑 생성
-            if text.lower() == '/wallet':
+            if command == '/wallet':
                 wallet = crypto_wallet.create_wallet()
-                with wallets_lock:
-                    wallets[chat_id] = wallet['private_key']
+                self.wallets[chat_id] = wallet['private_key']
                 self.send_message(bot_token, chat_id, f"새 지갑이 생성되었습니다\n주소: {wallet['address']}")
                 return True
 
             # 잔액 조회
-            if text.lower() == '/balance':
-                with wallets_lock:
-                    priv = wallets.get(chat_id)
+            if command == '/balance':
+                priv = self.wallets.get(chat_id)
                 if not priv:
                     self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
                     return True
@@ -112,13 +121,12 @@ class handler(BaseHTTPRequestHandler):
                 return True
 
             # 송금 처리
-            if text.lower().startswith('/pay'):
+            if command == '/pay':
                 parts = text.split()
                 if len(parts) != 3:
                     self.send_message(bot_token, chat_id, '사용법: /pay <받는주소> <금액>')
                     return True
-                with wallets_lock:
-                    priv = wallets.get(chat_id)
+                priv = self.wallets.get(chat_id)
                 if not priv:
                     self.send_message(bot_token, chat_id, '먼저 /wallet 으로 지갑을 생성하세요.')
                     return True
@@ -129,20 +137,21 @@ class handler(BaseHTTPRequestHandler):
                 return True
 
             # 상품 등록 시작
-            if text.lower() == '/sell':
+            if command == '/sell':
                 self.start_product_registration(bot_token, chat_id)
                 return True
 
             # 상품 목록 요청 처리
-            if text.lower() == '/products':
+            if command == '/products':
                 products = self.get_products()  # 데이터베이스에서 상품 목록 가져오기
                 product_list = "\n".join([f"{product['title']} - {product['price']}원" for product in products])
                 reply = f"상품 목록:\n{product_list}"
                 self.send_message(bot_token, chat_id, reply)
                 return True
 
-            reply = self.create_reply(text)
+            reply = self.create_reply(command or text)
             self.send_message(bot_token, chat_id, reply)
+        
         
         except Exception as e:
             print(f"Message handling error: {e}")

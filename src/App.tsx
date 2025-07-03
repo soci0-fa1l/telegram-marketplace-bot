@@ -1,5 +1,5 @@
 import React from 'react';
-import TelegramMarketplace from './components/TelegramMarketplace'; // TelegramMarketplace 컴포넌트 import
+import TelegramMarketplace from './components/telegram_miniapp';
 
 const App = () => {
   return (

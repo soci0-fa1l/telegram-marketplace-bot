@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Filter, Heart, ShoppingCart, User, Home, Tag, Camera, Send } from 'lucide-react';
+import WalletConnect from './WalletConnect';
 
 interface Product {
   id: number;
@@ -299,16 +300,19 @@ const TelegramMarketplace = () => {
       {/* 헤더 */}
       <div className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">마켓플레이스</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button className="p-2 hover:bg-gray-100 rounded-lg">
             <Filter className="w-5 h-5" />
           </button>
-          <button 
+          <button
             onClick={() => setShowAddProduct(!showAddProduct)}
             className="p-2 hover:bg-gray-100 rounded-lg"
           >
             <Plus className="w-5 h-5" />
           </button>
+          <div className="ml-2">
+            <WalletConnect />
+          </div>
         </div>
       </div>
 
